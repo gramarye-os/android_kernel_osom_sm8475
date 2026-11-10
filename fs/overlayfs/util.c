@@ -139,13 +139,29 @@ void ovl_dentry_init_flags(struct dentry *dentry, struct dentry *upperdentry,
 
 bool ovl_dentry_weird(struct dentry *dentry)
 {
+	unsigned int flags;
+
 	if (!d_can_lookup(dentry) && !d_is_file(dentry) && !d_is_symlink(dentry))
 		return true;
 
-	return dentry->d_flags & (DCACHE_NEED_AUTOMOUNT |
-				  DCACHE_MANAGE_TRANSIT |
-				  DCACHE_OP_HASH |
-				  DCACHE_OP_COMPARE);
+	flags = dentry->d_flags & (DCACHE_NEED_AUTOMOUNT |
+				   DCACHE_MANAGE_TRANSIT |
+				   DCACHE_OP_HASH |
+				   DCACHE_OP_COMPARE);
+#if IS_ENABLED(CONFIG_UNICODE)
+	/*
+	 * AOHP: a casefold-capable filesystem (Android userdata is formatted
+	 * with the f2fs casefold feature) installs the case-insensitive
+	 * hash/compare ops on every dentry, but generic_ci_d_hash/compare
+	 * fall back to the exact-match behaviour unless the directory itself
+	 * has the casefold flag. Only refuse dentries that are really
+	 * casefolded, so an OCI runtime's overlay storage under /data works.
+	 */
+	if (dentry->d_sb->s_encoding && d_inode(dentry) &&
+	    !IS_CASEFOLDED(d_inode(dentry)))
+		flags &= ~(DCACHE_OP_HASH | DCACHE_OP_COMPARE);
+#endif
+	return flags;
 }
 
 enum ovl_path_type ovl_path_type(struct dentry *dentry)
